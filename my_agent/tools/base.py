@@ -77,4 +77,4 @@ def tool(
     requires_confirmation: bool = False,
 ) -> Any:
     """Decorator that turns a function into a FunctionTool."""
-    raise NotImplementedError("P0: implement @tool decorator")
+    return FunctionTool(func=func, name=name, description=description, requires_confirmation=requires_confirmation)
