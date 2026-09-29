@@ -52,7 +52,7 @@ async def main() -> None:
     )
 
     try:
-        result = await agent.run("What is the capital of France?")
+        result = await agent.run("今天巴黎天气?")
     except NotImplementedError as e:
         _fail(f"尚未实现 — {e}")
 
