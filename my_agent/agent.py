@@ -11,7 +11,9 @@ from typing import Any, Callable, List, Optional, Type
 from pydantic import BaseModel
 
 from my_agent.context import AgentResult
-from my_agent.llm import LlmClient
+from my_agent.llm import LlmClient, LlmRequest
+from my_agent.context import ExecutionContext
+from my_agent.types import Message, ToolCall, ToolResult
 
 
 class Agent:
@@ -53,4 +55,41 @@ class Agent:
 
     async def run(self, user_input: str, **kwargs: Any) -> AgentResult:
         """Execute the ReAct loop until final answer or max_steps."""
-        raise NotImplementedError("P1: implement ReAct loop")
+        context = ExecutionContext()
+        context.add_event(Message(role="user", content=user_input))
+        while not context.final_result and context.current_step < self.max_steps:
+            response = await self.model.generate(LlmRequest(
+                instructions=[self.instructions],
+                contents=context.events,
+                tools=self.tools,
+                tool_choice="auto"
+            ))
+            
+            if response.error_message:
+                raise RuntimeError(response.error_message)
+            
+            if not response.content:
+                raise RuntimeError("No response from model")
+
+            # 判断是否存在tool_calls
+            has_tool_calls = any(isinstance(message, ToolCall) for message in response.content)
+            for message in response.content:
+                if isinstance(message, ToolCall):
+                    tool = next(t for t in self.tools if t.name == message.name)
+                    context.add_event(ToolCall(tool_call_id=message.tool_call_id, name=message.name, arguments=message.arguments))
+                    tool_result = await tool(context, **message.arguments)
+                    context.add_event(ToolResult(tool_call_id=message.tool_call_id, name=message.name, status="success", content=[tool_result]))
+                    context.increment_step()
+                elif isinstance(message, Message):
+                    if not has_tool_calls:
+                        context.final_result = message.content
+                    else:
+                        context.add_event(message)
+                        context.increment_step()
+        return AgentResult(
+            output=context.final_result,
+            context=context,
+            status="complete" if context.final_result else "error",
+        )
+
+            

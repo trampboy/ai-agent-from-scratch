@@ -31,10 +31,10 @@ class ExecutionContext:
     transfer_tools: Dict[str, Any] = field(default_factory=dict)
 
     def add_event(self, event: Any) -> None:
-        raise NotImplementedError("P1: append event to history")
+        self.events.append(event)
 
     def increment_step(self) -> None:
-        raise NotImplementedError("P1: advance current_step")
+        self.current_step += 1
 
 
 @dataclass

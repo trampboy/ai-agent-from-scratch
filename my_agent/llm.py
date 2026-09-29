@@ -12,7 +12,7 @@ from typing import Any, Dict, List, Optional, Type, Union
 
 from pydantic import BaseModel, Field
 from litellm import acompletion
-from my_agent.types import Message, ToolCall
+from my_agent.types import Message, ToolCall, ToolResult
 import json
 
 
@@ -61,7 +61,7 @@ class LlmResponse(BaseModel):
 #     ]
 # }
 
-# # 4) tool（必须对应上一次 assistant.tool_calls[].id）
+# # 4) tool result（必须对应上一次 assistant.tool_calls[].id）
 # {
 #     "role": "tool",
 #     "tool_call_id": "call_abc123",
@@ -71,9 +71,43 @@ def build_messages(request: LlmRequest) -> List[dict]:
     """Convert LlmRequest into LiteLLM/OpenAI-style messages."""
     messages = []
     for instruction in request.instructions:
-        messages.append(Message(role="system", content=instruction))
+        messages.append({
+            "role": "system",
+            "content": instruction
+        })
     for message in request.contents:
-        messages.append(Message(role=message.role, content=message.content))
+        if isinstance(message, ToolResult):
+            messages.append({
+                "role": "tool",
+                "tool_call_id": message.tool_call_id,
+                "content": str(message.content[0]) if message.content else None
+            })
+        elif isinstance(message, ToolCall):
+            tool_call = {
+                "id": message.tool_call_id,
+                "type": "function",
+                "function": {
+                    "name": message.name,
+                    "arguments": json.dumps(message.arguments)
+                }
+            }
+            # 如果上一轮刚写入 assistant 文本，则需要合并进去
+            if messages and messages[-1]["role"] == "assistant":
+                # 合并 tool_calls
+                messages[-1].setdefault("tool_calls", []).append(tool_call)
+            else:
+                messages.append({
+                    "role": "assistant",
+                    "content": None,
+                    "tool_calls": [tool_call]
+                })
+        elif isinstance(message, Message):
+            messages.append({
+                "role": message.role,
+                "content": message.content
+            })
+        else:
+            raise ValueError(f"Invalid message type: {type(message)}")
     return messages
 
 
@@ -86,16 +120,18 @@ class LlmClient:
 
     async def generate(self, request: LlmRequest) -> LlmResponse:
         try:
+            print("generate request:", request)
             response = await acompletion(
                 model=self.model,
                 messages=build_messages(request),
-                tools=request.tools,
+                tools=[tools.tool_definition for tools in request.tools] if request.tools else None,
                 tool_choice=request.tool_choice,
                 model_id=request.model_id,
             )
-            print(response)
+            print("generate response:", response)
             return self._parse_response(response)
         except Exception as e:
+            print("error", e)
             return LlmResponse(error_message=str(e))
 
     async def ask(

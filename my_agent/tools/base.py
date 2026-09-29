@@ -64,9 +64,16 @@ class FunctionTool(BaseTool):
         self.sandbox_executable = sandbox_executable
         parameters = helpers.function_to_input_schema(func)
         self._tool_definition = helpers.format_tool_definition(resolved_name, resolved_desc, parameters)
+        self.needs_context = "context" in inspect.signature(func).parameters
 
-    def execute(self, context: Any, **kwargs: Any) -> Any:
-        return self.func(context, **kwargs)
+    async def execute(self, context: Any, **kwargs: Any) -> Any:
+        if self.needs_context:
+            result = self.func(context, **kwargs)
+        else:
+            result = self.func(**kwargs)
+        if inspect.isawaitable(result):
+            result = await result
+        return result
 
 
 def tool(
