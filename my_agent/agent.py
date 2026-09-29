@@ -77,8 +77,31 @@ class Agent:
                 if isinstance(message, ToolCall):
                     tool = next(t for t in self.tools if t.name == message.name)
                     context.add_event(ToolCall(tool_call_id=message.tool_call_id, name=message.name, arguments=message.arguments))
-                    tool_result = await tool(context, **message.arguments)
-                    context.add_event(ToolResult(tool_call_id=message.tool_call_id, name=message.name, status="success", content=[tool_result]))
+
+                    skip_tool = False
+                    for callback in self.before_tool_callbacks:
+                        cb_result = callback(context, message)
+                        if hasattr(cb_result, "__await__"):
+                            cb_result = await cb_result
+                        if cb_result is not None:
+                            context.add_event(ToolResult(tool_call_id=message.tool_call_id, name=message.name, status="success", content=[cb_result]))
+                            skip_tool = True
+                            break
+                    if skip_tool:
+                        context.increment_step()
+                        continue
+                            
+                    output = await tool(context, **message.arguments)
+                    tool_result = ToolResult(tool_call_id=message.tool_call_id, name=message.name, status="success", content=[output])
+
+                    for callback in self.after_tool_callbacks:
+                        cb_result = callback(context, tool_result)
+                        if hasattr(cb_result, "__await__"):
+                            cb_result = await cb_result
+                        if cb_result is not None:
+                            tool_result = cb_result
+
+                    context.add_event(tool_result)
                     context.increment_step()
                 elif isinstance(message, Message):
                     if not has_tool_calls:
