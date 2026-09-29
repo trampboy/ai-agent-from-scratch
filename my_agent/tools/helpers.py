@@ -10,9 +10,18 @@ def function_to_input_schema(func: Callable) -> Dict[str, Any]:
     """Build JSON-schema parameters from a function signature + docstring."""
     signature = inspect.signature(func)
     parameters = {}
+    required = []
     for name, param in signature.parameters.items():
+        # 跳过上下文参数
         if name == "context":
             continue
+        # 跳过可变参数
+        if param.kind in [inspect.Parameter.VAR_KEYWORD, inspect.Parameter.VAR_POSITIONAL]:
+            continue
+        # 如果默认参数为空，则认为是必填参数
+        if param.default is inspect.Parameter.empty:
+            required.append(name)
+        
         if param.annotation is str:
             json_type = "string"
         elif param.annotation is int:
@@ -28,10 +37,6 @@ def function_to_input_schema(func: Callable) -> Dict[str, Any]:
         else:
             json_type = "string"
         parameters[name] = { "type": json_type, "description": f"Parameter: {name}", }
-        
-    required = []
-    if param.default is inspect.Parameter.empty:
-        required.append(name)
     return {
         "type": "object",
         "properties": parameters,
