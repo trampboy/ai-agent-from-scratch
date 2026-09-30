@@ -60,11 +60,8 @@ class Agent:
 
         session_id = kwargs.get("session_id")
         session = None
-        print('run session_id:', session_id)
-        print('run self.session_manageron_id:', self.session_manager)
         if session_id and self.session_manager:
             session = await self.session_manager.get_or_create(session_id)
-            print('run session:', session)
             context.session = session
             context.events = session.events if session.events else []
             context.state = session.state
@@ -123,14 +120,10 @@ class Agent:
                     else:
                         context.add_event(message)
                         context.increment_step()
-        print('after run session:', session)
-        print('after run context.events:', context.events)
-        print('after run message:', message)
         if session:
             session.events = list(context.events)
             session.state = context.state
             await self.session_manager.save(session)
-            print('run session:', session)
         return AgentResult(
             output=context.final_result,
             context=context,
