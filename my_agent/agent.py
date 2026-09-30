@@ -56,6 +56,19 @@ class Agent:
     async def run(self, user_input: str, **kwargs: Any) -> AgentResult:
         """Execute the ReAct loop until final answer or max_steps."""
         context = ExecutionContext()
+        context.session_manager = self.session_manager
+
+        session_id = kwargs.get("session_id")
+        session = None
+        print('run session_id:', session_id)
+        print('run self.session_manageron_id:', self.session_manager)
+        if session_id and self.session_manager:
+            session = await self.session_manager.get_or_create(session_id)
+            print('run session:', session)
+            context.session = session
+            context.events = session.events if session.events else []
+            context.state = session.state
+
         context.add_event(Message(role="user", content=user_input))
         while not context.final_result and context.current_step < self.max_steps:
             response = await self.model.generate(LlmRequest(
@@ -106,9 +119,18 @@ class Agent:
                 elif isinstance(message, Message):
                     if not has_tool_calls:
                         context.final_result = message.content
+                        context.add_event(message)
                     else:
                         context.add_event(message)
                         context.increment_step()
+        print('after run session:', session)
+        print('after run context.events:', context.events)
+        print('after run message:', message)
+        if session:
+            session.events = list(context.events)
+            session.state = context.state
+            await self.session_manager.save(session)
+            print('run session:', session)
         return AgentResult(
             output=context.final_result,
             context=context,
