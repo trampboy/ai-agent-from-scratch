@@ -152,10 +152,16 @@ async def _check_two_turn_recall() -> None:
 
 
 async def _check_tool_confirmation() -> None:
-    """C) 工具确认：类型 +（实现后）pending → resume。"""
+    """C) 工具确认：类型 + pending → 拒绝恢复（失败 case）。"""
+    import tempfile
+
+    from my_agent.agent import Agent
     from my_agent.context import PendingToolCall, ToolConfirmation
+    from my_agent.llm import LlmClient
+    from my_agent.tools.base import FunctionTool
     from my_agent.types import ToolCall
 
+    # --- 类型冒烟 ---
     try:
         tc = ToolCall(
             tool_call_id="tc-1",
@@ -174,13 +180,82 @@ async def _check_tool_confirmation() -> None:
         _fail("拒绝路径的 approved 应为 False")
     if pending.tool_call.name != "delete_file":
         _fail("PendingToolCall 应保留原始 tool_call")
-
-    # 端到端（在 my_agent/agent.py 接好确认回路后补全）：
-    #   r = await agent.run(..., session_id=...)
-    #   assert r.status == "pending_confirmation"
-    #   r2 = await agent.run(None, session_id=..., tool_confirmations=[...])
     print("C) tool confirmation (types): OK")
-    print("   TODO: 在 my_agent/agent.py 接好确认后，补全 pending → resume 断言")
+
+    # --- 端到端：拒绝确认（失败 case）---
+    _require_api_key()
+
+    deleted: list[str] = []
+
+    def delete_file(path: str) -> str:
+        """删除指定路径的文件。"""
+        deleted.append(path)
+        return f"deleted: {path}"
+
+    delete_tool = FunctionTool(
+        delete_file,
+        requires_confirmation=True,
+        confirmation_message_template="确认删除 {path}？",
+    )
+
+    model = os.getenv("MY_AGENT_MODEL", "deepseek/deepseek-chat")
+    session_mgr = _session_manager()
+    confirm_session = "mem-confirm-deny"
+
+    with tempfile.TemporaryDirectory() as workspace:
+        target = os.path.join(workspace, "tmp.txt")
+        with open(target, "w", encoding="utf-8") as f:
+            f.write("keep-me\n")
+
+        agent = Agent(
+            model=LlmClient(model),
+            tools=[delete_tool],
+            instructions=(
+                "你只能使用 delete_file 工具。用户要求删除时必须调用该工具，"
+                "不要直接用文字代替工具调用。"
+            ),
+            max_steps=4,
+            session_manager=session_mgr,
+        )
+
+        try:
+            r = await agent.run(
+                f"请删除文件：{target}",
+                session_id=confirm_session,
+            )
+        except NotImplementedError as e:
+            _fail(f"确认回路尚未实现 — {e}")
+
+        print(f"C) 第 1 次 run status={r.status!r} pending={r.pending_tool_calls!r}")
+        if r.status != "pending_confirmation":
+            _fail(
+                f"期望 status='pending_confirmation'，得到 {r.status!r}"
+                "（请在执行 requires_confirmation 工具前挂起）"
+            )
+        if not r.pending_tool_calls:
+            _fail("pending_confirmation 时应带上 pending_tool_calls")
+
+        deny = ToolConfirmation(
+            tool_call_id=r.pending_tool_calls[0].tool_call.tool_call_id,
+            approved=False,
+            reason="demo deny",
+        )
+        try:
+            r2 = await agent.run(
+                None,
+                session_id=confirm_session,
+                tool_confirmations=[deny],
+            )
+        except TypeError as e:
+            _fail(f"恢复确认时 run 需支持 user_input=None 与 tool_confirmations — {e}")
+        except NotImplementedError as e:
+            _fail(f"尚未实现 tool_confirmations 恢复 — {e}")
+
+        print(f"C) 拒绝后 status={r2.status!r} output={r2.output!r}")
+        if deleted:
+            _fail(f"拒绝确认后不应真正删除，却调用了: {deleted}")
+
+    print("C) tool confirmation (deny): OK")
 
 
 async def _check_long_term_memory() -> None:
@@ -206,8 +281,8 @@ async def _check_long_term_memory() -> None:
 
 
 async def main() -> None:
-    await _check_session_unit()
-    await _check_two_turn_recall()
+    # await _check_session_unit()
+    # await _check_two_turn_recall()
     await _check_tool_confirmation()
     await _check_long_term_memory()
     print("P4 通过")

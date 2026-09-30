@@ -12,7 +12,7 @@ from pydantic import BaseModel
 
 from my_agent.context import AgentResult
 from my_agent.llm import LlmClient, LlmRequest
-from my_agent.context import ExecutionContext
+from my_agent.context import ExecutionContext, PendingToolCall
 from my_agent.types import Message, ToolCall, ToolResult
 
 
@@ -57,6 +57,7 @@ class Agent:
         """Execute the ReAct loop until final answer or max_steps."""
         context = ExecutionContext()
         context.session_manager = self.session_manager
+        tool_confirmations = kwargs.get("tool_confirmations") or []
 
         session_id = kwargs.get("session_id")
         session = None
@@ -66,7 +67,27 @@ class Agent:
             context.events = session.events if session.events else []
             context.state = session.state
 
-        context.add_event(Message(role="user", content=user_input))
+        if user_input:
+            context.add_event(Message(role="user", content=user_input))
+
+        # 判断是否已经被批准
+        pending_tool_calls = context.state.get("pending_tool_calls") or []
+        for tool_confirmation in tool_confirmations:
+            pending = next((p for p in pending_tool_calls if p.tool_call.tool_call_id == tool_confirmation.tool_call_id), None)
+            if pending is None:
+                continue
+            
+            tool_call = pending.tool_call
+            tool = next(t for t in self.tools if t.name == tool_call.name)
+            if tool_confirmation.approved:
+                args = tool_confirmation.modified_arguments or tool_call.arguments
+                tool_output = await tool(context, **args)
+                context.add_event(ToolResult(tool_call_id=tool_call.tool_call_id, name=tool_call.name, status="success", content=[tool_output]))
+            else:
+                context.add_event(ToolResult(tool_call_id=tool_call.tool_call_id, name=tool_call.name, status="error", content=['用户拒绝']))
+            
+            context.state.pop("pending_tool_calls", None)
+
         while not context.final_result and context.current_step < self.max_steps:
             response = await self.model.generate(LlmRequest(
                 instructions=[self.instructions],
@@ -88,6 +109,18 @@ class Agent:
                     tool = next(t for t in self.tools if t.name == message.name)
                     context.add_event(ToolCall(tool_call_id=message.tool_call_id, name=message.name, arguments=message.arguments))
 
+                    # 如果该工具需要用户确认是否执行    
+                    print('tool.requires_confirmation', tool.requires_confirmation)
+                    if tool.requires_confirmation is True:
+                        pendingToolCalls = [PendingToolCall(tool_call=message, confirmation_message=tool.confirmation_message_template)]
+                        context.state["pending_tool_calls"] = pendingToolCalls
+                        if session:
+                            session.events = list(context.events)
+                            session.state = context.state
+                            await self.session_manager.save(session)
+                        return AgentResult(status="pending_confirmation", pending_tool_calls=pendingToolCalls, context=context, output="权限需要用户确认")
+
+
                     skip_tool = False
                     for callback in self.before_tool_callbacks:
                         cb_result = callback(context, message)
@@ -97,10 +130,11 @@ class Agent:
                             context.add_event(ToolResult(tool_call_id=message.tool_call_id, name=message.name, status="success", content=[cb_result]))
                             skip_tool = True
                             break
+
                     if skip_tool:
                         context.increment_step()
                         continue
-                            
+                    
                     output = await tool(context, **message.arguments)
                     tool_result = ToolResult(tool_call_id=message.tool_call_id, name=message.name, status="success", content=[output])
 
@@ -124,6 +158,7 @@ class Agent:
             session.events = list(context.events)
             session.state = context.state
             await self.session_manager.save(session)
+            
         return AgentResult(
             output=context.final_result,
             context=context,
