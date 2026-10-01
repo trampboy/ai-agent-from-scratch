@@ -90,5 +90,12 @@ class TaskMemoryManager:
         return memory_id
 
 
-    async def search(self, query: str, **kwargs: Any) -> List[Any]:
-        raise NotImplementedError("P4: retrieve relevant memories")
+    async def search(self, query: str, top_k: int = 3) -> List[Any]:
+        query_result = self.collection.query(query_texts=[query], n_results=top_k)
+        metadatas = query_result["metadatas"][0]
+        if not metadatas:
+            return None
+        result = []
+        for metadata in metadatas:
+            result.append(TaskMemory(**metadata))
+        return result

@@ -335,40 +335,40 @@ async def _check_long_term_memory() -> None:
     if memory_id is None:
         _fail("首次 save 应入库并返回 memory_id，不应为 None（除非去重误伤）")
 
-    # try:
-    #     hits = await mgr.search("secret project code", top_k=3)
-    # except TypeError:
-    #     # 允许 search(query) 不带 top_k
-    #     try:
-    #         hits = await mgr.search("secret project code")
-    #     except NotImplementedError as e:
-    #         _fail(f"请实现 TaskMemoryManager.search — {e}")
-    # except NotImplementedError as e:
-    #     _fail(f"请实现 TaskMemoryManager.search — {e}")
+    try:
+        hits = await mgr.search("secret project code", top_k=3)
+    except TypeError:
+        # 允许 search(query) 不带 top_k
+        try:
+            hits = await mgr.search("secret project code")
+        except NotImplementedError as e:
+            _fail(f"请实现 TaskMemoryManager.search — {e}")
+    except NotImplementedError as e:
+        _fail(f"请实现 TaskMemoryManager.search — {e}")
 
-    # print(f"D) search hits: {hits!r}")
-    # if not hits:
-    #     _fail("search 应能召回刚 save 的记忆")
+    print(f"D) search hits: {hits!r}")
+    if not hits:
+        _fail("search 应能召回刚 save 的记忆")
 
-    # texts = " ".join(
-    #     getattr(h, "task_summary", "") + " " + getattr(h, "final_answer", "")
-    #     for h in hits
-    # )
-    # if SECRET not in texts and "project code" not in texts.lower():
-    #     _fail(f"召回结果应与入库任务相关（期望含 {SECRET} 或 project code 摘要）")
+    texts = " ".join(
+        getattr(h, "task_summary", "") + " " + getattr(h, "final_answer", "")
+        for h in hits
+    )
+    if SECRET not in texts and "project code" not in texts.lower():
+        _fail(f"召回结果应与入库任务相关（期望含 {SECRET} 或 project code 摘要）")
 
-    # # --- 去重（可选但建议）：再 save 一次同 context ---
-    # try:
-    #     dup_id = await mgr.save(ctx)
-    #     print(f"D) 重复 save 返回: {dup_id!r}")
-    #     if dup_id is not None:
-    #         print("D) 去重: WARN（重复 save 仍返回 id；可后续补 _is_duplicate）")
-    #     else:
-    #         print("D) 去重: OK")
-    # except Exception as e:
-    #     print(f"D) 去重: SKIP — {e}")
+    # --- 去重（可选但建议）：再 save 一次同 context ---
+    try:
+        dup_id = await mgr.save(ctx)
+        print(f"D) 重复 save 返回: {dup_id!r}")
+        if dup_id is not None:
+            print("D) 去重: WARN（重复 save 仍返回 id；可后续补 _is_duplicate）")
+        else:
+            print("D) 去重: OK")
+    except Exception as e:
+        print(f"D) 去重: SKIP — {e}")
 
-    # print("D) long-term memory: OK")
+    print("D) long-term memory: OK")
 
 
 async def main() -> None:
