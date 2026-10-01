@@ -31,3 +31,9 @@ async def create_tasks(context, tasks: List[Task]) -> str:
 
 async def reflect(**kwargs: Any) -> Any:
     raise NotImplementedError("P5: reflection step after actions")
+
+@tool
+async def reflection(analysis, need_replan = False) -> str:
+    if need_replan:
+        return f"Reflection recorded(REPLAN NEEDED): {analysis}"
+    return f"Reflection recorded: {analysis}"

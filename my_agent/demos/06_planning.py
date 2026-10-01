@@ -352,8 +352,8 @@ async def _check_reflection_e2e() -> None:
 
 
 async def main() -> None:
-    await _check_task_and_create_tasks()
-    # await _check_reflection_unit()
+    # await _check_task_and_create_tasks()
+    await _check_reflection_unit()
     # E2E 需要 API key；实现 planning 单元通过后再打开
     # await _check_planning_e2e()
     # await _check_reflection_e2e()
