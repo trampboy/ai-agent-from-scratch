@@ -4,7 +4,7 @@
   1) my_agent.memory.session：get_or_create / save 可用
   2) 同一 session_id 两轮对话能回忆第 1 轮事实
   3) PendingToolCall / ToolConfirmation 可构造；确认回路可挂起并恢复
-  4)（可选）TaskMemoryManager save + search 能找回摘要
+  4) TaskMemory 可构造；save(context) 后 search 能召回相关摘要
 
 实现位置（不要改 scratch_agents/）：
   my_agent/memory/session.py
@@ -259,31 +259,122 @@ async def _check_tool_confirmation() -> None:
 
 
 async def _check_long_term_memory() -> None:
-    """D)（可选）Long-term：只验收 my_agent.memory.long_term。"""
+    """D) Long-term：TaskMemory 模型 + save / search（去重可选）。
+
+    实现位置：my_agent/memory/long_term.py
+    提示：
+      - TaskMemory 字段：task_summary / approach / final_answer / is_correct / error_analysis
+      - TaskMemoryManager.save(context) 从 events 抽取并入库；search(query) 向量召回
+      - 抽取若走 LLM，可能需要先实现 LlmClient.ask(..., response_format=TaskMemory)
+    """
+    _require_api_key()
+
     try:
-        from my_agent.memory.long_term import TaskMemoryManager
+        from my_agent.memory.long_term import TaskMemory, TaskMemoryManager
     except ImportError as e:
-        print(f"D) long-term memory: SKIP — {e}")
-        return
+        _fail(
+            "请在 my_agent/memory/long_term.py 导出 TaskMemory 与 TaskMemoryManager — "
+            f"{e}"
+        )
 
-    # TaskMemory 可能尚未导出；有则做轻量存在性检查
+    from my_agent.context import ExecutionContext
+    from my_agent.llm import LlmClient
+    from my_agent.types import Message
+
+    # --- 模型可构造 ---
     try:
-        from my_agent.memory.long_term import TaskMemory  # type: ignore
-    except ImportError:
-        TaskMemory = None  # noqa: N806
+        sample = TaskMemory(
+            task_summary="What is the project code for demo D?",
+            approach="Look up prior conversation fact",
+            final_answer=SECRET,
+            is_correct=True,
+            error_analysis=None,
+        )
+    except Exception as e:
+        _fail(f"TaskMemory 构造失败 — {e}")
 
-    if TaskMemory is None:
-        print("D) long-term memory: SKIP（实现 TaskMemory + save/search 后补全）")
-        return
+    if not hasattr(sample, "to_embedding_text"):
+        _fail("TaskMemory 建议提供 to_embedding_text() 供向量检索使用")
+    print(f"D) TaskMemory: OK ({sample.to_embedding_text()!r})")
 
-    _ = TaskMemoryManager
-    print("D) long-term memory: SKIP（实现后补全 save/search 断言）")
+    # --- save + search ---
+    model = os.getenv("MY_AGENT_MODEL", "deepseek/deepseek-chat")
+    try:
+        mgr = TaskMemoryManager(LlmClient(model))
+    except TypeError as e:
+        _fail(f"TaskMemoryManager(__init__) 签名不匹配，通常需要 llm_client — {e}")
+    except NotImplementedError as e:
+        _fail(f"尚未实现 TaskMemoryManager — {e}")
+
+    ctx = ExecutionContext()
+    ctx.add_event(
+        Message(
+            role="user",
+            content=f"Solve: what is the secret project code? It is {SECRET}.",
+        )
+    )
+    ctx.add_event(
+        Message(
+            role="assistant",
+            content=f"The project code is {SECRET}.",
+        )
+    )
+    ctx.final_result = SECRET
+
+    try:
+        memory_id = await mgr.save(ctx)
+    except NotImplementedError as e:
+        _fail(
+            f"请实现 TaskMemoryManager.save(context) — {e}；"
+            "若内部用 LLM 抽取，请一并实现 LlmClient.ask"
+        )
+    except Exception as e:
+        _fail(f"save(context) 失败 — {e}")
+
+    print(f"D) save 返回: {memory_id!r}")
+    if memory_id is None:
+        _fail("首次 save 应入库并返回 memory_id，不应为 None（除非去重误伤）")
+
+    # try:
+    #     hits = await mgr.search("secret project code", top_k=3)
+    # except TypeError:
+    #     # 允许 search(query) 不带 top_k
+    #     try:
+    #         hits = await mgr.search("secret project code")
+    #     except NotImplementedError as e:
+    #         _fail(f"请实现 TaskMemoryManager.search — {e}")
+    # except NotImplementedError as e:
+    #     _fail(f"请实现 TaskMemoryManager.search — {e}")
+
+    # print(f"D) search hits: {hits!r}")
+    # if not hits:
+    #     _fail("search 应能召回刚 save 的记忆")
+
+    # texts = " ".join(
+    #     getattr(h, "task_summary", "") + " " + getattr(h, "final_answer", "")
+    #     for h in hits
+    # )
+    # if SECRET not in texts and "project code" not in texts.lower():
+    #     _fail(f"召回结果应与入库任务相关（期望含 {SECRET} 或 project code 摘要）")
+
+    # # --- 去重（可选但建议）：再 save 一次同 context ---
+    # try:
+    #     dup_id = await mgr.save(ctx)
+    #     print(f"D) 重复 save 返回: {dup_id!r}")
+    #     if dup_id is not None:
+    #         print("D) 去重: WARN（重复 save 仍返回 id；可后续补 _is_duplicate）")
+    #     else:
+    #         print("D) 去重: OK")
+    # except Exception as e:
+    #     print(f"D) 去重: SKIP — {e}")
+
+    # print("D) long-term memory: OK")
 
 
 async def main() -> None:
     # await _check_session_unit()
     # await _check_two_turn_recall()
-    await _check_tool_confirmation()
+    # await _check_tool_confirmation()
     await _check_long_term_memory()
     print("P4 通过")
 

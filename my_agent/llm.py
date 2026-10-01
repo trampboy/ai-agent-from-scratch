@@ -139,7 +139,23 @@ class LlmClient:
         prompt: str,
         response_format: Optional[Type[BaseModel]] = None,
     ) -> Union[str, BaseModel]:
-        raise NotImplementedError("P0: one-shot prompt helper")
+        if response_format is not None:
+            instructions = [(
+                f"{prompt}\n\nRespond ONLY with valid JSON matching this schema:\n"
+                f"{json.dumps(response_format.model_json_schema())}"
+            )]
+        else:
+            instructions=[prompt]
+        response = await self.generate(LlmRequest(instructions=instructions, contents=[Message(role="user", content="Please respond.")]))
+        text = ""
+        for item in response.content:
+            if isinstance(item, Message):
+                text = item.content
+                break
+        if response_format is None:
+            return text
+        print('ask text:', text)
+        return response_format.model_validate_json(text)
 
     def _parse_response(self, response: Any) -> LlmResponse:
         content = []
