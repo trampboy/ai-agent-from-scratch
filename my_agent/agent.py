@@ -135,8 +135,12 @@ class Agent:
                         context.increment_step()
                         continue
                     
-                    output = await tool(context, **message.arguments)
-                    tool_result = ToolResult(tool_call_id=message.tool_call_id, name=message.name, status="success", content=[output])
+                    try:
+                        output = await tool(context, **message.arguments)
+                        tool_result = ToolResult(tool_call_id=message.tool_call_id, name=message.name, status="success", content=[output])
+                    except Exception as e:
+                        tool_result = ToolResult(tool_call_id=message.tool_call_id, name=message.name, status="error", content=[str(e)])
+                    
 
                     for callback in self.after_tool_callbacks:
                         cb_result = callback(context, tool_result)
