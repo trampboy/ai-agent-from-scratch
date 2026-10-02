@@ -4,10 +4,20 @@ from __future__ import annotations
 
 from typing import Any, Callable, Dict
 import inspect
+from typing import get_type_hints, get_origin, get_args
 
 
 def function_to_input_schema(func: Callable) -> Dict[str, Any]:
     """Build JSON-schema parameters from a function signature + docstring."""
+    try:
+        hints = get_type_hints(func)
+    except Exception:
+        hints = {
+            name: param.annotation
+            for name, param in inspect.signature(func).parameters.items()
+            if param.annotation is not inspect.Parameter.empty
+        }
+
     signature = inspect.signature(func)
     parameters = {}
     required = []
@@ -21,22 +31,36 @@ def function_to_input_schema(func: Callable) -> Dict[str, Any]:
         # 如果默认参数为空，则认为是必填参数
         if param.default is inspect.Parameter.empty:
             required.append(name)
-        
-        if param.annotation is str:
-            json_type = "string"
-        elif param.annotation is int:
-            json_type = "integer"
-        elif param.annotation is float:
-            json_type = "number"
-        elif param.annotation is bool:
-            json_type = "boolean"
-        elif param.annotation is list:
-            json_type = "array"
-        elif param.annotation is dict:
-            json_type = "object"
+
+        hint = hints.get(name)
+        if hint is str:
+            prop: Dict[str, Any] = {"type": "string"}
+        elif hint is int:
+            prop = {"type": "integer"}
+        elif hint is float:
+            prop = {"type": "number"}
+        elif hint is bool:
+            prop = {"type": "boolean"}
+        elif hint is list or get_origin(hint) is list:
+            prop = {"type": "array"}
+            args = get_args(hint) if hint is not list else ()
+            if args:
+                item_type = args[0]
+                if item_type is str:
+                    prop["items"] = {"type": "string"}
+                elif item_type is int:
+                    prop["items"] = {"type": "integer"}
+                elif hasattr(item_type, "model_json_schema"):
+                    prop["items"] = item_type.model_json_schema()
+        elif hasattr(hint, "model_json_schema"):
+            prop = hint.model_json_schema()
+        elif hint is dict or get_origin(hint) is dict:
+            prop = {"type": "object"}
         else:
-            json_type = "string"
-        parameters[name] = { "type": json_type, "description": f"Parameter: {name}", }
+            prop = {"type": "string"}
+
+        prop["description"] = f"Parameter: {name}"
+        parameters[name] = prop
     return {
         "type": "object",
         "properties": parameters,
