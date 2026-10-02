@@ -353,11 +353,11 @@ async def _check_reflection_e2e() -> None:
 
 async def main() -> None:
     # await _check_task_and_create_tasks()
-    await _check_reflection_unit()
-    # E2E 需要 API key；实现 planning 单元通过后再打开
+    # await _check_reflection_unit()
+    # E2E 需要 API key
     # await _check_planning_e2e()
-    # await _check_reflection_e2e()
-    print("P5 通过（当前仅跑了 A/B 单元；取消注释 C/D 做完整验收）")
+    await _check_reflection_e2e()
+    print("P5 通过（当前跑了 C/D E2E）")
 
 
 if __name__ == "__main__":
