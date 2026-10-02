@@ -397,10 +397,10 @@ async def _check_skills_e2e() -> None:
 
 async def main() -> None:
     # await _check_skills_unit()
-    await _check_execute_python_unit()
+    # await _check_execute_python_unit()
     # E2E 需要 API key + E2B_API_KEY
     # await _check_code_execution_e2e()
-    # await _check_skills_e2e()
+    await _check_skills_e2e()
     print("P6 骨架：当前默认跑 A/B 单元；解开 C/D 注释以跑 E2E")
 
 

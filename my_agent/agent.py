@@ -14,6 +14,8 @@ from my_agent.context import AgentResult
 from my_agent.llm import LlmClient, LlmRequest
 from my_agent.context import ExecutionContext, PendingToolCall
 from my_agent.types import Message, ToolCall, ToolResult
+from e2b_code_interpreter import Sandbox
+from my_agent.tools.code_execution import execute_python
 
 
 class Agent:
@@ -59,6 +61,11 @@ class Agent:
         context.session_manager = self.session_manager
         tool_confirmations = kwargs.get("tool_confirmations") or []
 
+        if self.code_execution == 'e2b':
+            sandbox = Sandbox.create(timeout=200)
+            context.code_env = sandbox
+            self.tools.append(execute_python)
+
         session_id = kwargs.get("session_id")
         session = None
         if session_id and self.session_manager:
@@ -88,85 +95,91 @@ class Agent:
             
             context.state.pop("pending_tool_calls", None)
 
-        while not context.final_result and context.current_step < self.max_steps:
-            response = await self.model.generate(LlmRequest(
-                instructions=[self.instructions],
-                contents=context.events,
-                tools=self.tools,
-                tool_choice="auto"
-            ))
-            
-            if response.error_message:
-                raise RuntimeError(response.error_message)
-            
-            if not response.content:
-                raise RuntimeError("No response from model")
+        try:
+            while not context.final_result and context.current_step < self.max_steps:
+                response = await self.model.generate(LlmRequest(
+                    instructions=[self.instructions],
+                    contents=context.events,
+                    tools=self.tools,
+                    tool_choice="auto"
+                ))
+                
+                if response.error_message:
+                    raise RuntimeError(response.error_message)
+                
+                if not response.content:
+                    raise RuntimeError("No response from model")
 
-            # 判断是否存在tool_calls
-            has_tool_calls = any(isinstance(message, ToolCall) for message in response.content)
-            for message in response.content:
-                if isinstance(message, ToolCall):
-                    tool = next(t for t in self.tools if t.name == message.name)
-                    context.add_event(ToolCall(tool_call_id=message.tool_call_id, name=message.name, arguments=message.arguments))
+                # 判断是否存在tool_calls
+                has_tool_calls = any(isinstance(message, ToolCall) for message in response.content)
+                for message in response.content:
+                    if isinstance(message, ToolCall):
+                        tool = next(t for t in self.tools if t.name == message.name)
+                        context.add_event(ToolCall(tool_call_id=message.tool_call_id, name=message.name, arguments=message.arguments))
 
-                    # 如果该工具需要用户确认是否执行    
-                    print('tool.requires_confirmation', tool.requires_confirmation)
-                    if tool.requires_confirmation is True:
-                        pendingToolCalls = [PendingToolCall(tool_call=message, confirmation_message=tool.confirmation_message_template)]
-                        context.state["pending_tool_calls"] = pendingToolCalls
-                        if session:
-                            session.events = list(context.events)
-                            session.state = context.state
-                            await self.session_manager.save(session)
-                        return AgentResult(status="pending_confirmation", pending_tool_calls=pendingToolCalls, context=context, output="权限需要用户确认")
+                        # 如果该工具需要用户确认是否执行    
+                        print('tool.requires_confirmation', tool.requires_confirmation)
+                        if tool.requires_confirmation is True:
+                            pendingToolCalls = [PendingToolCall(tool_call=message, confirmation_message=tool.confirmation_message_template)]
+                            context.state["pending_tool_calls"] = pendingToolCalls
+                            if session:
+                                session.events = list(context.events)
+                                session.state = context.state
+                                await self.session_manager.save(session)
+                            return AgentResult(status="pending_confirmation", pending_tool_calls=pendingToolCalls, context=context, output="权限需要用户确认")
 
 
-                    skip_tool = False
-                    for callback in self.before_tool_callbacks:
-                        cb_result = callback(context, message)
-                        if hasattr(cb_result, "__await__"):
-                            cb_result = await cb_result
-                        if cb_result is not None:
-                            context.add_event(ToolResult(tool_call_id=message.tool_call_id, name=message.name, status="success", content=[cb_result]))
-                            skip_tool = True
-                            break
+                        skip_tool = False
+                        for callback in self.before_tool_callbacks:
+                            cb_result = callback(context, message)
+                            if hasattr(cb_result, "__await__"):
+                                cb_result = await cb_result
+                            if cb_result is not None:
+                                context.add_event(ToolResult(tool_call_id=message.tool_call_id, name=message.name, status="success", content=[cb_result]))
+                                skip_tool = True
+                                break
 
-                    if skip_tool:
+                        if skip_tool:
+                            context.increment_step()
+                            continue
+                        
+                        try:
+                            output = await tool(context, **message.arguments)
+                            tool_result = ToolResult(tool_call_id=message.tool_call_id, name=message.name, status="success", content=[output])
+                        except Exception as e:
+                            tool_result = ToolResult(tool_call_id=message.tool_call_id, name=message.name, status="error", content=[str(e)])
+                        
+
+                        for callback in self.after_tool_callbacks:
+                            cb_result = callback(context, tool_result)
+                            if hasattr(cb_result, "__await__"):
+                                cb_result = await cb_result
+                            if cb_result is not None:
+                                tool_result = cb_result
+
+                        context.add_event(tool_result)
                         context.increment_step()
-                        continue
-                    
-                    try:
-                        output = await tool(context, **message.arguments)
-                        tool_result = ToolResult(tool_call_id=message.tool_call_id, name=message.name, status="success", content=[output])
-                    except Exception as e:
-                        tool_result = ToolResult(tool_call_id=message.tool_call_id, name=message.name, status="error", content=[str(e)])
-                    
-
-                    for callback in self.after_tool_callbacks:
-                        cb_result = callback(context, tool_result)
-                        if hasattr(cb_result, "__await__"):
-                            cb_result = await cb_result
-                        if cb_result is not None:
-                            tool_result = cb_result
-
-                    context.add_event(tool_result)
-                    context.increment_step()
-                elif isinstance(message, Message):
-                    if not has_tool_calls:
-                        context.final_result = message.content
-                        context.add_event(message)
-                    else:
-                        context.add_event(message)
-                        context.increment_step()
-        if session:
-            session.events = list(context.events)
-            session.state = context.state
-            await self.session_manager.save(session)
-            
-        return AgentResult(
-            output=context.final_result,
-            context=context,
-            status="complete" if context.final_result else "error",
-        )
+                    elif isinstance(message, Message):
+                        if not has_tool_calls:
+                            context.final_result = message.content
+                            context.add_event(message)
+                        else:
+                            context.add_event(message)
+                            context.increment_step()
+            if session:
+                session.events = list(context.events)
+                session.state = context.state
+                await self.session_manager.save(session)
+                
+            return AgentResult(
+                output=context.final_result,
+                context=context,
+                status="complete" if context.final_result else "error",
+            )
+        finally:
+            if context.code_env is not None:
+                sandbox = context.code_env
+                context.code_env = None
+                sandbox.kill()
 
             
