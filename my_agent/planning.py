@@ -26,11 +26,21 @@ class Task(BaseModel):
 
 @tool
 async def create_tasks(context, tasks: List[Task]) -> str:
-    """创建或者更新任务"""
+    """Create or update a task plan.
+    WHEN TO USE:
+    - Complex queries requiring multiple steps of research
+    - Questions that need to combine information from different sources
+    WHEN NOT TO USE:
+    - Simple questions answerable with a single search
+    - Tasks with obvious, straightforward procedures
+    HOW TO USE:
+    - Pass tasks as a list of objects, each with content and status
+    - Regenerate the entire task list with updated statuses
+    - Mark completed tasks as 'completed'
+    - Mark the next task to work on as 'in_progress'
+    - Keep future tasks as 'pending'
+    """
     return "\n".join(str(Task.model_validate(t)) for t in tasks)
-
-async def reflect(**kwargs: Any) -> Any:
-    raise NotImplementedError("P5: reflection step after actions")
 
 @tool
 async def reflection(analysis, need_replan = False) -> str:
