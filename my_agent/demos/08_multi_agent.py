@@ -604,8 +604,8 @@ async def main() -> None:
     # await _check_remote_smoke()
 
     # E2E：需要 API key；实现并接通后再解开注释
-    await _check_transfer_e2e()
-    # await _check_sequential_e2e()
+    # await _check_transfer_e2e()
+    await _check_sequential_e2e()
 
     print("P7 骨架：当前默认跑 A–E 单元 + H 烟雾；解开 F/G 注释以跑 E2E")
 
