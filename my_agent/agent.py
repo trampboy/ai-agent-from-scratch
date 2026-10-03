@@ -17,6 +17,7 @@ from my_agent.types import Message, ToolCall, ToolResult
 from e2b_code_interpreter import Sandbox
 from my_agent.tools.code_execution import execute_python
 from my_agent.skills import discover_skills, generate_skills_prompt
+from my_agent.trace import AgentTrace
 from pathlib import Path
 
 class Agent:
@@ -62,6 +63,11 @@ class Agent:
         context.session_manager = self.session_manager
         tool_confirmations = kwargs.get("tool_confirmations") or []
         instructions = self.instructions
+        trace = kwargs.get("trace")
+        if trace is None:
+            trace = AgentTrace()
+        trace.run_start(self.name)
+        used_tools: set[str] = set()
 
         if self.code_execution == 'e2b':
             sandbox = Sandbox.create(timeout=200)
@@ -70,6 +76,11 @@ class Agent:
             if self.skills_path:
                 skillInfos = discover_skills(self.skills_path)
                 for skillInfo in skillInfos:
+                    trace.skill_discovered(
+                        skillInfo.name,
+                        description=skillInfo.description,
+                        path=skillInfo.path,
+                    )
                     for path in skillInfo.path.rglob("*"):
                         if path.is_file():
                             relative = path.relative_to(skillInfo.path).as_posix()
@@ -116,7 +127,7 @@ class Agent:
                     tool_choice="auto"
                 )
 
-                response = await self.model.generate(llmRequest)
+                response = await self.model.generate(llmRequest, trace=trace)
                 
                 if response.error_message:
                     raise RuntimeError(response.error_message)
@@ -132,7 +143,6 @@ class Agent:
                         context.add_event(ToolCall(tool_call_id=message.tool_call_id, name=message.name, arguments=message.arguments))
 
                         # 如果该工具需要用户确认是否执行    
-                        print('tool.requires_confirmation', tool.requires_confirmation)
                         if tool.requires_confirmation is True:
                             pendingToolCalls = [PendingToolCall(tool_call=message, confirmation_message=tool.confirmation_message_template)]
                             context.state["pending_tool_calls"] = pendingToolCalls
@@ -140,7 +150,9 @@ class Agent:
                                 session.events = list(context.events)
                                 session.state = context.state
                                 await self.session_manager.save(session)
-                            return AgentResult(status="pending_confirmation", pending_tool_calls=pendingToolCalls, context=context, output="权限需要用户确认")
+                            result = AgentResult(status="pending_confirmation", pending_tool_calls=pendingToolCalls, context=context, output="权限需要用户确认")
+                            trace.run_done(result.status, output=result.output, tools=used_tools)
+                            return result
 
 
                         skip_tool = False
@@ -157,6 +169,8 @@ class Agent:
                             context.increment_step()
                             continue
                         
+                        used_tools.add(message.name)
+                        trace.tool_execute(message.name, message.arguments)
                         try:
                             output = await tool(context, **message.arguments)
                             tool_result = ToolResult(tool_call_id=message.tool_call_id, name=message.name, status="success", content=[output])
@@ -171,6 +185,8 @@ class Agent:
                             if cb_result is not None:
                                 tool_result = cb_result
 
+                        preview = tool_result.content[0] if tool_result.content else ""
+                        trace.tool_result(tool_result.name, tool_result.status, preview)
                         context.add_event(tool_result)
                         context.increment_step()
                     elif isinstance(message, Message):
@@ -185,11 +201,13 @@ class Agent:
                 session.state = context.state
                 await self.session_manager.save(session)
                 
-            return AgentResult(
+            result = AgentResult(
                 output=context.final_result,
                 context=context,
                 status="complete" if context.final_result else "error",
             )
+            trace.run_done(result.status, output=result.output, tools=used_tools)
+            return result
         finally:
             if context.code_env is not None:
                 sandbox = context.code_env

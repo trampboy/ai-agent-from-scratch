@@ -13,6 +13,7 @@ from typing import Any, Dict, List, Optional, Type, Union
 from pydantic import BaseModel, Field
 from litellm import acompletion
 from my_agent.types import Message, ToolCall, ToolResult
+from my_agent.trace import AgentTrace
 import json
 
 
@@ -118,9 +119,14 @@ class LlmClient:
         self.model = model
         self.config = config
 
-    async def generate(self, request: LlmRequest) -> LlmResponse:
+    async def generate(
+        self,
+        request: LlmRequest,
+        trace: Optional[AgentTrace] = None,
+    ) -> LlmResponse:
         try:
-            print("generate request:", request)
+            if trace is not None:
+                trace.llm_request(request, model=self.model)
             response = await acompletion(
                 model=self.model,
                 messages=build_messages(request),
@@ -128,10 +134,22 @@ class LlmClient:
                 tool_choice=request.tool_choice,
                 model_id=request.model_id,
             )
-            print("generate response:", response)
-            return self._parse_response(response)
+            parsed = self._parse_response(response)
+            if trace is not None:
+                finish = None
+                if getattr(response, "choices", None):
+                    finish = getattr(response.choices[0], "finish_reason", None)
+                trace.llm_response(
+                    parsed,
+                    finish_reason=finish,
+                    model=getattr(response, "model", None) or self.model,
+                )
+            return parsed
         except Exception as e:
-            print("error", e)
+            if trace is not None:
+                trace.error(e)
+            else:
+                print("error", e)
             return LlmResponse(error_message=str(e))
 
     async def ask(

@@ -48,11 +48,8 @@ def discover_skills(skills_path: str) -> List[SkillInfo]:
         frontmatter = {}
         for line in m.group(1).split('\n'):
             key, value = line.split(":", 1)
-            print('key：', key)
-            print('value：', value)
             frontmatter[key.strip()] = value.strip().strip("'\"")
-            print('frontmatter', frontmatter)
-        skillInfos.append(SkillInfo(name=frontmatter['name'], description=frontmatter['description'], path=Path(item)))    
+        skillInfos.append(SkillInfo(name=frontmatter['name'], description=frontmatter['description'], path=Path(item)))
     return skillInfos
     
 def generate_skills_prompt(skills: List[SkillInfo], sandbox_path="/home/user/skills") -> str:
