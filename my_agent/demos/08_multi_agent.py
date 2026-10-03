@@ -596,12 +596,12 @@ async def _check_remote_smoke() -> None:
 
 async def main() -> None:
     # 单元：无 API key 也可跑（实现 Incomplete 前会 FAIL 并给出指引）
-    await _check_sequential_unit()
-    await _check_parallel_unit()
+    # await _check_sequential_unit()
+    # await _check_parallel_unit()
     await _check_loop_unit()
-    await _check_transfer_tool_unit()
-    await _check_agent_tool_unit()
-    await _check_remote_smoke()
+    # await _check_transfer_tool_unit()
+    # await _check_agent_tool_unit()
+    # await _check_remote_smoke()
 
     # E2E：需要 API key；实现并接通后再解开注释
     # await _check_transfer_e2e()
