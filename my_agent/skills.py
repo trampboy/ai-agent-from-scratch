@@ -12,7 +12,7 @@ import re
 class SkillInfo(BaseModel):
     name: str = Field(description="Skill 名称")
     description: str = Field(description="Skill 描述")
-    path: str = Field(description="Skill 地址")
+    path: Path = Field(description="Skill 地址")
 
 # SAMPLE_SKILL_MD = """\
 # ---
@@ -52,10 +52,10 @@ def discover_skills(skills_path: str) -> List[SkillInfo]:
             print('value：', value)
             frontmatter[key.strip()] = value.strip().strip("'\"")
             print('frontmatter', frontmatter)
-        skillInfos.append(SkillInfo(name=frontmatter['name'], description=frontmatter['description'], path=str(item)))    
+        skillInfos.append(SkillInfo(name=frontmatter['name'], description=frontmatter['description'], path=Path(item)))    
     return skillInfos
     
-def generate_skills_prompt(skills: List[SkillInfo]) -> str:
+def generate_skills_prompt(skills: List[SkillInfo], sandbox_path="/home/user/skills") -> str:
     if not skills:
         return ""
     
@@ -68,8 +68,8 @@ def generate_skills_prompt(skills: List[SkillInfo]) -> str:
     for skill in skills:
         lines.append(f"### {skill.name}")
         lines.append(f"- Description: {skill.description}")
-        lines.append(f"- Path: {skill.path}")
-        lines.append(f"Read the SKILL.md for usage instructions: {skill.path}/SKILL.md")
+        lines.append(f"- Path: {sandbox_path}/{skill.name}/")
+        lines.append(f"Read the SKILL.md for usage instructions: {sandbox_path}/{skill.name}/SKILL.md")
         lines.append("")
         lines.append("You can import and use these skills in your Python code. Read the SKILL.md file first to understand how to use each skill.")
 

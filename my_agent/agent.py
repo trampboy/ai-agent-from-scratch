@@ -16,7 +16,8 @@ from my_agent.context import ExecutionContext, PendingToolCall
 from my_agent.types import Message, ToolCall, ToolResult
 from e2b_code_interpreter import Sandbox
 from my_agent.tools.code_execution import execute_python
-
+from my_agent.skills import discover_skills, generate_skills_prompt
+from pathlib import Path
 
 class Agent:
     """Tool-calling agent with a ReAct loop."""
@@ -60,11 +61,22 @@ class Agent:
         context = ExecutionContext()
         context.session_manager = self.session_manager
         tool_confirmations = kwargs.get("tool_confirmations") or []
+        instructions = self.instructions
 
         if self.code_execution == 'e2b':
             sandbox = Sandbox.create(timeout=200)
             context.code_env = sandbox
             self.tools.append(execute_python)
+            if self.skills_path:
+                skillInfos = discover_skills(self.skills_path)
+                for skillInfo in skillInfos:
+                    for path in skillInfo.path.rglob("*"):
+                        if path.is_file():
+                            relative = path.relative_to(skillInfo.path).as_posix()
+                            sandbox.files.write(f"/home/user/skills/{skillInfo.name}/{relative}", path.read_bytes())
+                if skillInfos:
+                    instructions = instructions + "\n" + generate_skills_prompt(skillInfos)
+
 
         session_id = kwargs.get("session_id")
         session = None
@@ -97,12 +109,14 @@ class Agent:
 
         try:
             while not context.final_result and context.current_step < self.max_steps:
-                response = await self.model.generate(LlmRequest(
-                    instructions=[self.instructions],
+                llmRequest = LlmRequest(
+                    instructions=[instructions],
                     contents=context.events,
                     tools=self.tools,
                     tool_choice="auto"
-                ))
+                )
+
+                response = await self.model.generate(llmRequest)
                 
                 if response.error_message:
                     raise RuntimeError(response.error_message)

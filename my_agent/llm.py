@@ -27,7 +27,7 @@ class LlmRequest(BaseModel):
     model_id: Optional[str] = None
 
     def append_instructions(self, text: str) -> None:
-        raise NotImplementedError("P0: append system instruction")
+        self.instructions.append(text)
 
 
 class LlmResponse(BaseModel):
