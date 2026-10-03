@@ -18,7 +18,7 @@ from e2b_code_interpreter import Sandbox
 from my_agent.tools.code_execution import execute_python
 from my_agent.skills import discover_skills, generate_skills_prompt
 from my_agent.trace import AgentTrace
-from pathlib import Path
+from my_agent.transfer import create_transfer_tool
 
 class Agent:
     """Tool-calling agent with a ReAct loop."""
@@ -39,6 +39,7 @@ class Agent:
         before_llm_callbacks: list[Callable] | None = None,
         code_execution: str | None = None,
         skills_path: str | None = None,
+        sub_agents: List[Agent] | None = None,
         **kwargs: Any,
     ):
         self.model = model
@@ -55,7 +56,14 @@ class Agent:
         self.before_llm_callbacks = before_llm_callbacks or []
         self.code_execution = code_execution
         self.skills_path = skills_path
+        self.sub_agents = sub_agents
         self.kwargs = kwargs
+
+    def _find_agent(self, agent_name):
+        for agent in self.sub_agents:
+            if agent.name == agent_name:
+                return agent
+        return None
 
     async def run(self, user_input: str, context: ExecutionContext = None, **kwargs: Any) -> AgentResult:
         """Execute the ReAct loop until final answer or max_steps."""
@@ -90,6 +98,9 @@ class Agent:
                             sandbox.files.write(f"/home/user/skills/{skillInfo.name}/{relative}", path.read_bytes())
                 if skillInfos:
                     instructions = instructions + "\n" + generate_skills_prompt(skillInfos)
+        
+        if self.sub_agents:
+            self.tools.append(create_transfer_tool(self.sub_agents))
 
 
         session_id = kwargs.get("session_id")
@@ -123,6 +134,11 @@ class Agent:
 
         try:
             while not context.final_result and context.current_step < self.max_steps:
+                if context.transfer_to:
+                    target = self._find_agent(context.transfer_to)
+                    context.transfer_to = None
+                    return await target.run(user_input="", context=context)
+
                 llmRequest = LlmRequest(
                     instructions=[instructions],
                     contents=context.events,

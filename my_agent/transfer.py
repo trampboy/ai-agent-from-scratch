@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from typing import Any, List
-from my_agent.agent import Agent
 from my_agent.context import ExecutionContext
 from my_agent.tools import tool
 from my_agent.tools.base import FunctionTool
@@ -11,7 +10,7 @@ from my_agent.tools.base import FunctionTool
 
 
 
-def create_transfer_tool(target_agents: List[Agent]) -> FunctionTool:
+def create_transfer_tool(target_agents: List) -> FunctionTool:
     target_names = [agent.name for agent in target_agents]
 
     @tool
@@ -22,4 +21,6 @@ def create_transfer_tool(target_agents: List[Agent]) -> FunctionTool:
             context.transfer_to = agent_name
             return f"Transferring to {agent_name}"
         return f"Transfer already requested to {context.transfer_to}"
+    
+    transfer_to_agent.tool_definition["function"]["parameters"]["properties"]["agent_name"]["enum"] = target_names
     return transfer_to_agent
