@@ -4,10 +4,26 @@ from __future__ import annotations
 
 from typing import Any, List
 
+from my_agent import Agent
+from my_agent.context import ExecutionContext, AgentResult
+
+
 
 class SequentialWorkflow:
-    def __init__(self, agents: List[Any]):
+    def __init__(self, agents: List[Agent]):
         self.agents = agents
 
-    async def run(self, user_input: str, **kwargs: Any) -> Any:
-        raise NotImplementedError("P7: sequential agent pipeline")
+    async def run(self, user_input: str, **kwargs: Any) -> AgentResult:
+        is_first_agent = True
+        context = ExecutionContext()
+        result = None
+        for agent in self.agents:
+            if is_first_agent:
+                result = await agent.run(user_input=user_input, context=context, **kwargs)
+            else:
+                result = await agent.run(context=context, **kwargs)
+        return result
+
+
+
+            

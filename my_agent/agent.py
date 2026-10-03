@@ -57,9 +57,12 @@ class Agent:
         self.skills_path = skills_path
         self.kwargs = kwargs
 
-    async def run(self, user_input: str, **kwargs: Any) -> AgentResult:
+    async def run(self, user_input: str, context: ExecutionContext = None, **kwargs: Any) -> AgentResult:
         """Execute the ReAct loop until final answer or max_steps."""
-        context = ExecutionContext()
+        if context is None:
+            context = ExecutionContext()
+        else:
+            context = context
         context.session_manager = self.session_manager
         tool_confirmations = kwargs.get("tool_confirmations") or []
         instructions = self.instructions
