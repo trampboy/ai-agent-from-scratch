@@ -65,7 +65,7 @@ class Agent:
                 return agent
         return None
 
-    async def run(self, user_input: str, context: ExecutionContext = None, **kwargs: Any) -> AgentResult:
+    async def run(self, user_input: str | None = None, context: ExecutionContext = None, **kwargs: Any) -> AgentResult:
         """Execute the ReAct loop until final answer or max_steps."""
         if context is None:
             context = ExecutionContext()

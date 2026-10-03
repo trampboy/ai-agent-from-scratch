@@ -20,8 +20,11 @@ class SequentialWorkflow:
         for agent in self.agents:
             if is_first_agent:
                 result = await agent.run(user_input=user_input, context=context, **kwargs)
+                is_first_agent = False
             else:
-                result = await agent.run(context=context, **kwargs)
+                context.final_result = None
+                context.current_step = 0
+                result = await agent.run(context=context)
         return result
 
 
