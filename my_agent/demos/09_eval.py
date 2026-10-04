@@ -429,14 +429,14 @@ async def _check_gaia_sample() -> None:
 
 async def main() -> None:
     # 单元（无 API）
-    await _check_prompts_unit()
-    await _check_scoring_unit()
-    await _check_opr_unit()
+    # await _check_prompts_unit()
+    # await _check_scoring_unit()
+    # await _check_opr_unit()
 
     # E2E（需要 API）— 按需解开
     # await _check_llm_judge_smoke()
     # await _check_custom_cases_e2e()
-    # await _check_gaia_sample()
+    await _check_gaia_sample()
 
     print("P8 骨架：当前默认跑 A/B/C 单元；解开 D/E/F 注释以跑 E2E")
 
